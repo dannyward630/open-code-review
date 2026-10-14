@@ -163,6 +163,9 @@ func (p *CodeSearchProvider) gitGrep(ctx context.Context, searchText string, cas
 		if errors.Is(err, context.Canceled) {
 			return "", err
 		}
+		if usePerlRegexp && outStr == "" && isInvalidPerlRegexpError(errStr) {
+			return fmt.Sprintf("Error: invalid regular expression: %s", strings.TrimPrefix(strings.TrimSpace(errStr), "fatal: ")), nil
+		}
 		if outStr == "" {
 			var exitErr *exec.ExitError
 			exitCode := -1
@@ -251,6 +254,14 @@ func (p *CodeSearchProvider) gitGrep(ctx context.Context, searchText string, cas
 	}
 
 	return sb.String(), nil
+}
+
+func isInvalidPerlRegexpError(stderr string) bool {
+	stderr = strings.ToLower(strings.TrimSpace(stderr))
+	return strings.Contains(stderr, "pcre2_compile failed") ||
+		strings.Contains(stderr, "pcre_compile failed") ||
+		strings.HasPrefix(stderr, "fatal: command line, ") ||
+		strings.HasPrefix(stderr, "fatal: -e option, ")
 }
 
 func trimGitUsage(stderr string, exitCode int) string {

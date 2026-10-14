@@ -370,18 +370,15 @@ func TestGitGrep_InvalidRef_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestGitGrep_PerlRegexp_InvalidPattern_ReturnsError(t *testing.T) {
+func TestGitGrep_PerlRegexp_InvalidPattern_ReturnsModelFacingMessage(t *testing.T) {
 	dir := setupTestRepo(t)
 	p := NewCodeSearch(&FileReader{RepoDir: dir, Ref: "", Mode: ModeWorkspace})
 	result, err := p.gitGrep(context.Background(), "(unclosed", false, true, nil)
-	if err == nil {
-		t.Fatal("expected invalid perl regexp to return an error")
+	if err != nil {
+		t.Fatalf("expected invalid perl regexp as a model-facing message, got error: %v", err)
 	}
-	if result != "" {
-		t.Errorf("expected empty result for invalid perl regexp, got: %s", result)
-	}
-	if !strings.Contains(err.Error(), "git grep failed") {
-		t.Errorf("expected git grep failure, got: %v", err)
+	if !strings.Contains(result, "Error: invalid regular expression") {
+		t.Errorf("expected a model-facing invalid-regex message, got: %s", result)
 	}
 }
 
@@ -694,6 +691,44 @@ func TestCodeSearchProvider_Execute_PerlRegexp(t *testing.T) {
 	}
 	if !strings.Contains(got, "hello.go") {
 		t.Errorf("expected hello.go in perl regexp result, got: %s", got)
+	}
+}
+
+func TestCodeSearchProvider_Execute_InvalidPerlRegexp(t *testing.T) {
+	dir := setupTestRepo(t)
+	p := NewCodeSearch(&FileReader{RepoDir: dir, Mode: ModeWorkspace})
+
+	got, err := p.Execute(context.Background(), map[string]any{
+		"search_text":     "func (unclosed",
+		"use_perl_regexp": true,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v, want an error result for the model", err)
+	}
+	if !strings.Contains(got, "Error: invalid regular expression") {
+		t.Errorf("Execute() = %q, want a model-facing invalid-regex message", got)
+	}
+}
+
+func TestIsInvalidPerlRegexpError(t *testing.T) {
+	tests := []struct {
+		name   string
+		stderr string
+		want   bool
+	}{
+		{name: "PCRE2 diagnostic", stderr: "fatal: pcre2_compile failed: missing closing parenthesis", want: true},
+		{name: "PCRE diagnostic", stderr: "fatal: pcre_compile failed: missing closing parenthesis", want: true},
+		{name: "command line diagnostic", stderr: "fatal: command line, 'pattern': missing closing parenthesis", want: true},
+		{name: "-e option diagnostic", stderr: "fatal: -e option, 'pattern': missing closing parenthesis", want: true},
+		{name: "unrelated git error", stderr: "fatal: invalid object name 'HEAD~1'", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isInvalidPerlRegexpError(test.stderr); got != test.want {
+				t.Errorf("isInvalidPerlRegexpError(%q) = %t, want %t", test.stderr, got, test.want)
+			}
+		})
 	}
 }
 
